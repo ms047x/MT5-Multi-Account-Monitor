@@ -1,0 +1,11 @@
+﻿__pycache__/
+*.pyc
+config.json
+server_config.json
+agent_config.json
+_fx*.py
+_fix*.py
+_gen*.py
+_gen_template.py
+_test_enc.py
+test.html

@@ -1,0 +1,4 @@
+﻿fastapi>=0.100.0
+uvicorn>=0.20.0
+websockets>=10.0
+MetaTrader5>=5.0.0

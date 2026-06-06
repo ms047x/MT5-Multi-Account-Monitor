@@ -1,0 +1,16 @@
+﻿{
+  "_说明": "复制为 agent_config.json 后启动",
+  "name": "ServerA",
+  "server_url": "http://100.x.x.x:8000",
+  "auth_token": "",
+  "poll_interval": 3,
+  "accounts": [
+    {
+      "name": "Example",
+      "path": "C:\\Program Files\\MetaTrader\\terminal64.exe",
+      "server": "Broker-Live",
+      "login": 12345678,
+      "password": "********"
+    }
+  ]
+}
