@@ -1,4 +1,4 @@
-import asyncio, json, logging
+import asyncio, json, logging, os
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 import uvicorn
@@ -6,6 +6,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import mt5_collector
+from server.alerter import check_and_alert
 
 logger = logging.getLogger("server")
 
@@ -13,6 +14,31 @@ ws_clients = set()
 all_accounts = {}
 daily_pnl = {}
 daily_balance = {}
+
+_SAVE_FILE = "daily_data.json"
+
+def _save_daily():
+    try:
+        data = {"balance": daily_balance, "pnl": {k: v for k, v in daily_pnl.items()}}
+        with open(_SAVE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        logger.error("Save daily data failed: %s", e)
+
+def _load_daily():
+    try:
+        if os.path.exists(_SAVE_FILE):
+            with open(_SAVE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if "balance" in data:
+                daily_balance.clear()
+                daily_balance.update(data["balance"])
+            if "pnl" in data:
+                daily_pnl.clear()
+                daily_pnl.update(data["pnl"])
+    except Exception as e:
+        logger.error("Load daily data failed: %s", e)
+
 source_heartbeat = {}
 local_collectors = {}
 AUTH_TOKEN = None
@@ -60,9 +86,11 @@ async def lifespan(app):
         local_collectors = mt5_collector.spawn_collectors(cfg["local_accounts"], cfg.get("poll_interval", 3))
         logger.info("Local MT5 collectors started: " + str(len(local_collectors)))
     import os
+    _load_daily()
     task = asyncio.create_task(_local_loop())
     yield
     task.cancel()
+    _save_daily()
     mt5_collector.stop_all(local_collectors)
 
 app = FastAPI(lifespan=lifespan)
@@ -235,7 +263,7 @@ async def index():
                 y = ch - pd - ((v - mn) / rg) * (ch - 2*pd)
                 pts.append("{:.1f},{:.1f}".format(x, y))
             pts_str = " ".join(pts)
-            fill = "{:.1f},{:.1f} {:.1f} {:.1f},{:.1f}".format(pd, ch, pts_str, cw-pd, ch)
+            fill = "{:.1f},{:.1f} {} {:.1f},{:.1f}".format(pd, ch, pts_str, cw-pd, ch)
             step = max(1, len(recent)//6)
         chart_svg = "<div class=chart-section><div class=chart-title>\u603b\u4f59\u989d\u8d70\u52bf\uff08\u8fd130\u65e5\uff09</div><svg viewBox=\"0 0 " + str(cw) + " " + str(ch) + "\">"
         for gi in range(4):
@@ -307,6 +335,7 @@ async def agent_push(req: Request):
         key = source + "/" + acct.get("name", "?")
         acct["_source"] = source
         all_accounts[key] = acct
+        check_and_alert(key, acct, CONFIG)
     # Broadcast to WS clients
     # Track daily total balance
     today = body.get("_date", "") or str(datetime.now(tz=timezone.utc).date())

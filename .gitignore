@@ -9,3 +9,4 @@ _gen*.py
 _gen_template.py
 _test_enc.py
 test.html
+daily_data.json
