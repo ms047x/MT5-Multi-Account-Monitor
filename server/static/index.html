@@ -83,6 +83,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue
 
 <script>
 async function refresh() {
+  if (window.location.pathname.indexOf('/single') !== -1) return;
   try {
     const r = await fetch('/api/dashboard');
     const d = await r.json();
@@ -98,8 +99,8 @@ async function refresh() {
     const chart = document.querySelector('.chart-section');
     if (chart && d.chart) chart.outerHTML = d.chart;
     else if (!chart && d.chart) {
-      const sb = document.querySelector('.summary-bar');
-      sb.insertAdjacentHTML('afterend', d.chart);
+      const s2 = document.querySelector('.summary-bar');
+      if (s2) s2.insertAdjacentHTML('afterend', d.chart);
     }
   } catch(e) { console.log('refresh error:', e); }
 }
