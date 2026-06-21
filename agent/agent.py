@@ -9,7 +9,7 @@ logger = logging.getLogger("agent")
 
 def load_config(path="agent_config.json"):
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:
             return json.load(f)
     except FileNotFoundError:
         logger.error("配置文件 %s 不存在", path)

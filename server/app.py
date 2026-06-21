@@ -22,8 +22,7 @@ _SAVE_FILE = "daily_data.json"
 
 def _maybe_record_snapshots():
     global _last_snapshot_date
-    import datetime as _dt
-    now = _dt.datetime.now()
+    now = datetime.now(tz=timezone(timedelta(hours=8)))
     today = now.strftime("%Y-%m-%d")
     if now.hour >= 6 and today != _last_snapshot_date:
         tb = 0
@@ -144,55 +143,40 @@ def _fmt(n):
 
 
 
-def _build_chart():
-    """Build daily balance chart SVG."""
-    db_keys = sorted(daily_balance.keys())
-    if not db_keys:
-        try:
-            tb, _, _, _, _ = _calc_summary()
-            if tb > 0:
-                import datetime as _dt
-                today_str = _dt.datetime.now().strftime("%Y-%m-%d")
-                daily_balance[today_str] = round(tb, 2)
-                db_keys = [today_str]
-        except Exception:
-            pass
-    if not db_keys:
-        return ""
-    recent = db_keys[-30:]
-    vals = [daily_balance[d] for d in recent]
-    mn = min(vals)
-    mx = max(vals)
-    rg = mx - mn or 1
+def _render_chart_svg(vals, date_keys, title):
+    """Render SVG sparkline chart from value list and date labels."""
+    lo = min(vals)
+    hi = max(vals)
+    rg = hi - lo or 1
     pad_amt = rg * 0.1
-    mn -= pad_amt
-    mx += pad_amt
-    rg = mx - mn
-    min_rg = abs(mx) * 0.2 if mx else 1
+    lo -= pad_amt
+    hi += pad_amt
+    rg = hi - lo
+    min_rg = abs(hi) * 0.2 if hi else 1
     if rg < min_rg:
-        mid = (mx + mn) / 2
-        mx = mid + min_rg / 2
-        mn = mid - min_rg / 2
-        rg = mx - mn
+        mid = (hi + lo) / 2
+        hi = mid + min_rg / 2
+        lo = mid - min_rg / 2
+        rg = hi - lo
     cw, ch = 800, 150
     pd = 8
-
-    if len(vals) == 1:
-        y = ch - pd - ((vals[0] - mn) / rg) * (ch - 2*pd)
+    n = len(vals)
+    if n == 1:
+        y = ch - pd - ((vals[0] - lo) / rg) * (ch - 2*pd)
         pts_str = "{:.1f},{:.1f} {:.1f},{:.1f}".format(pd, y, cw-pd, y)
         fill = ""
         step = 1
     else:
         pts = []
         for i, v in enumerate(vals):
-            x = pd + (i / (len(vals)-1)) * (cw - 2*pd)
-            y = ch - pd - ((v - mn) / rg) * (ch - 2*pd)
+            x = pd + (i / (n-1)) * (cw - 2*pd)
+            y = ch - pd - ((v - lo) / rg) * (ch - 2*pd)
             pts.append("{:.1f},{:.1f}".format(x, y))
         pts_str = " ".join(pts)
         fill = "{:.1f},{:.1f} {} {:.1f},{:.1f}".format(pd, ch, pts_str, cw-pd, ch)
-        step = max(1, len(recent)//6)
+        step = max(1, len(date_keys)//6)
 
-    svg  = '<div class=chart-section><div class=chart-title>总余额走势（近30日）</div>'
+    svg  = '<div class=chart-section><div class=chart-title>' + title + '</div>'
     svg += '<svg viewBox="0 0 ' + str(cw) + ' ' + str(ch) + '">'
     for gi in range(4):
         gy = pd + (gi/4) * (ch-2*pd)
@@ -201,20 +185,28 @@ def _build_chart():
         svg += '<polygon class="sparkfill" points="' + fill + '" />'
     svg += '<polyline class="sparkline" points="' + pts_str + '" />'
     for gi in range(4):
-        val = mx - (gi/4)*rg
+        val = hi - (gi/4)*rg
         gy = pd + (gi/4)*(ch-2*pd)
         svg += '<text x="' + str(pd-2) + '" y="' + '{:.1f}'.format(gy+3) + '" text-anchor="end">$' + '{:,.0f}'.format(val) + '</text>'
-    if len(recent) >= 1:
-        if len(recent) == 1:
-            d = recent[0][5:]
+    if len(date_keys) >= 1:
+        if len(date_keys) == 1:
+            d = date_keys[0][5:]
             svg += '<text x="' + str(cw/2) + '" y="' + str(ch-4) + '" text-anchor="middle">' + d + '</text>'
         else:
-            for i in range(0, len(recent), step):
-                d = recent[i][5:]
-                x = pd + (i/(len(recent)-1))*(cw-2*pd)
+            for i in range(0, len(date_keys), step):
+                d = date_keys[i][5:]
+                x = pd + (i/(len(date_keys)-1))*(cw-2*pd)
                 svg += '<text x="' + '{:.1f}'.format(x) + '" y="' + str(ch-4) + '" text-anchor="middle">' + d + '</text>'
     svg += '</svg></div>'
     return svg
+
+def _build_chart():
+    db_keys = sorted(daily_balance.keys())
+    if not db_keys:
+        return ""
+    recent = db_keys[-30:]
+    vals = [daily_balance[d] for d in recent]
+    return _render_chart_svg(vals, recent, "总余额走势（近30日）")
 
 def _calc_summary():
     tb = te = tpval = 0
@@ -337,12 +329,12 @@ async def single_account(account: str = ""):
         ct = "美分" in nm
         cent_badge = ' <span class="cent-badge">美分</span>' if ct else ""
         card  = '<div class="card"><div class="card-header"><div class="card-name"><span class="led ' + led + '"></span>' + str(account_key) + cent_badge + '</div><div class="card-server">' + srv + '</div></div>'
-        card += '<div class="card-grid"><div><div class="metric-label">余额</div><div class="metric-value neutral">$' + _fmt(bal) + '</div></div>'
-        card += '<div><div class="metric-label">净值</div><div class="metric-value neutral">$' + _fmt(eq) + '</div></div>'
-        card += '<div><div class="metric-label">盈亏</div><div class="metric-value ' + pcls + '">$' + _fmt(pr) + '</div></div>'
+        card += '<div class="card-grid"><div><div class="metric-label">余额</div><div class="metric-value neutral">' + _fmt(bal) + '</div></div>'
+        card += '<div><div class="metric-label">净值</div><div class="metric-value neutral">' + _fmt(eq) + '</div></div>'
+        card += '<div><div class="metric-label">盈亏</div><div class="metric-value ' + pcls + '>' + _fmt(pr) + '</div></div>'
         card += '<div><div class="metric-label">持仓</div><div class="metric-value neutral">' + str(pos) + '</div></div>'
-        card += '<div><div class="metric-label">保证金</div><div class="metric-value neutral">$' + _fmt(mg) + '</div></div>'
-        card += '<div><div class="metric-label">可用</div><div class="metric-value neutral">$' + _fmt(mf) + '</div></div>'
+        card += '<div><div class="metric-label">保证金</div><div class="metric-value neutral">' + _fmt(mg) + '</div></div>'
+        card += '<div><div class="metric-label">可用</div><div class="metric-value neutral">' + _fmt(mf) + '</div></div>'
         card += '</div><div class="metric-label" style="margin-top:8px">状态: <span style="color:' + ('var(--green)' if co else 'var(--red)') + '">' + ('在线' if co else '离线') + '</span></div></div>'
         html = html.replace("{{CARDS}}", card)
 
@@ -352,56 +344,18 @@ async def single_account(account: str = ""):
         if not snaps:
             from datetime import datetime as _dt2
             snaps = [{"date": _dt2.now().strftime("%Y-%m-%d"), "balance": a.get("balance", 0) or 0}]
-        if snaps:
-            snap_dates = sorted(set(s["date"] for s in snaps))
-            snap_keys = snap_dates[-30:]
-            snap_vals = [next(s["balance"] for s in reversed(snaps) if s["date"] == d) for d in snap_keys]
-            if snap_vals:
-                mn = min(snap_vals)
-                mx = max(snap_vals)
-                rg = mx - mn or 1
-                pad_amt = rg * 0.1
-                mn -= pad_amt; mx += pad_amt; rg = mx - mn
-                min_rg = abs(mx) * 0.2 if mx else 1
-                if rg < min_rg:
-                    mid = (mx+mn)/2
-                    mx = mid+min_rg/2; mn = mid-min_rg/2; rg = mx-mn
-                cw, ch = 800, 150
-                pd = 8
-                if len(snap_vals) == 1:
-                    y = ch - pd - ((snap_vals[0]-mn)/rg)*(ch-2*pd)
-                    pts_str = "{:.1f},{:.1f} {:.1f},{:.1f}".format(pd, y, cw-pd, y)
-                    fill = ""; step=1
-                else:
-                    pts = []
-                    for i, v in enumerate(snap_vals):
-                        x = pd + (i/(len(snap_vals)-1))*(cw-2*pd)
-                        y = ch-pd-((v-mn)/rg)*(ch-2*pd)
-                        pts.append("{:.1f},{:.1f}".format(x,y))
-                    pts_str = " ".join(pts)
-                    fill = "{:.1f},{:.1f} {} {:.1f},{:.1f}".format(pd, ch, pts_str, cw-pd, ch)
-                    step = max(1, len(snap_keys)//6)
-                chart = '<div class=chart-section><div class=chart-title>账户余额走势（近30日）</div><svg viewBox="0 0 '+str(cw)+' '+str(ch)+'">'
-                for gi in range(4):
-                    gy = pd+(gi/4)*(ch-2*pd)
-                    chart += '<line class=grid-line x1="'+str(pd)+'" y1="'+'{:.1f}'.format(gy)+'" x2="'+str(cw-pd)+'" y2="'+'{:.1f}'.format(gy)+'" />'
-                if fill:
-                    chart += '<polygon class=sparkfill points="'+fill+'" />'
-                chart += '<polyline class=sparkline points="'+pts_str+'" />'
-                for gi in range(4):
-                    val = mx-(gi/4)*rg
-                    gy = pd+(gi/4)*(ch-2*pd)
-                    chart += '<text x="'+'{:.1f}'.format(pd-2)+'" y="'+'{:.1f}'.format(gy+3)+'" text-anchor=end>$'+'{:,.0f}'.format(val)+'</text>'
-                if len(snap_keys) >= 1:
-                    if len(snap_keys) == 1:
-                        chart += '<text x="'+str(cw/2)+'" y="'+str(ch-4)+'" text-anchor=middle>'+snap_keys[0][5:]+'</text>'
-                    else:
-                        for i in range(0, len(snap_keys), step):
-                            d = snap_keys[i][5:]
-                            x = pd+(i/(len(snap_keys)-1))*(cw-2*pd)
-                            chart += '<text x="'+'{:.1f}'.format(x)+'" y="'+str(ch-4)+'" text-anchor=middle>'+d+'</text>'
-                chart += '</svg></div>'
+        snap_dates = sorted(set(s["date"] for s in snaps))
+        snap_keys = snap_dates[-30:]
+        snap_vals = []
+        for d in snap_keys:
+            for s in reversed(snaps):
+                if s["date"] == d:
+                    snap_vals.append(s["balance"])
+                    break
+        if snap_vals:
+            chart = _render_chart_svg(snap_vals, snap_keys, "账户余额走势（近30日）")
         html = html.replace("{{CHART}}", chart)
+
     else:
         html = html.replace("{{TB}}", "0.00")
         html = html.replace("{{TE}}", "0.00")
