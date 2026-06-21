@@ -116,7 +116,31 @@ async def _local_loop():
             }, ensure_ascii=False))
         await asyncio.sleep(0.5)
 
-@asynccontextmanager
+async def _cleanup_loop():
+    while True:
+        await asyncio.sleep(60)
+        now = datetime.now(tz=timezone.utc)
+        stale = []
+        for src, ts in dict(source_heartbeat).items():
+            try:
+                parts = ts.split(":")
+                h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+                last = now.replace(hour=h, minute=m, second=s)
+                if (now - last).total_seconds() < -43200:
+                    last = last.replace(day=last.day + 1)
+                if (now - last).total_seconds() > 300:
+                    stale.append(src)
+            except:
+                pass
+        for src in stale:
+            keys = [k for k in list(all_accounts) if k.startswith(src + "/")]
+            for k in keys:
+                del all_accounts[k]
+            source_heartbeat.pop(src, None)
+            if keys:
+                logger.info("Cleanup: %s (%d accounts)", src, len(keys))
+
+
 async def lifespan(app):
     global local_collectors
     cfg = _load_config()
@@ -125,8 +149,10 @@ async def lifespan(app):
         logger.info("Local MT5 collectors started: " + str(len(local_collectors)))
     _load_daily()
     task = asyncio.create_task(_local_loop())
+    clean_task = asyncio.create_task(_cleanup_loop())
     yield
     task.cancel()
+    clean_task.cancel()
     _save_daily()
     mt5_collector.stop_all(local_collectors)
 
@@ -472,6 +498,43 @@ async def ws_endpoint(ws: WebSocket):
         pass
     finally:
         ws_clients.discard(ws)
+
+
+@app.get("/api/dashboard")
+async def dashboard_json():
+    tb, te, tpval, tpp, ol = _calc_summary()
+    tl = len(all_accounts)
+    tpcls = "profit" if tpval > 0 else ("loss" if tpval < 0 else "neutral")
+    tps = ("+" if tpval > 0 else "") + _fmt(tpval)
+    return {
+        "tb": _fmt(tb), "te": _fmt(te), "tpcls": tpcls, "tp": tps,
+        "tpp": str(int(tpp)), "ol": str(ol), "tl": str(tl),
+        "chart": _build_chart(), "cards": _build_cards(),
+        "accounts": {k: dict(v) for k, v in sorted(all_accounts.items())},
+    }
+
+
+@app.get("/api/purge")
+async def purge_stale():
+    now = datetime.now(tz=timezone.utc)
+    removed = 0
+    for src in list(source_heartbeat):
+        try:
+            parts = source_heartbeat[src].split(":")
+            h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+            last = now.replace(hour=h, minute=m, second=s)
+            if (now - last).total_seconds() < -43200:
+                last = last.replace(day=last.day + 1)
+            if (now - last).total_seconds() > 300:
+                keys = [k for k in list(all_accounts) if k.startswith(src + "/")]
+                for k in keys:
+                    del all_accounts[k]
+                source_heartbeat.pop(src, None)
+                removed += len(keys)
+        except:
+            pass
+    return {"ok": True, "removed": removed}
+
 
 def start():
     cfg = _load_config()
